@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五子棋</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: '微软雅黑', Arial, sans-serif;
+    color: white;
+  }
+  h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+    text-shadow: 0 0 20px #f0c040;
+    color: #f0c040;
+  }
+  #status {
+    font-size: 1.2em;
+    margin-bottom: 10px;
+    background: rgba(255,255,255,0.1);
+    padding: 8px 20px;
+    border-radius: 20px;
+    min-width: 200px;
+    text-align: center;
+  }
+  #gameContainer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  canvas {
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(240,192,64,0.4);
+    cursor: pointer;
+    touch-action: none;
+  }
+  .btn-row {
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+  }
+  button {
+    padding: 10px 25px;
+    font-size: 1em;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  button:hover { transform: scale(1.05); }
+  #restartBtn {
+    background: linear-gradient(135deg, #f0c040, #e08020);
+    color: #1a1a2e;
+  }
+  #modeBtn {
+    background: linear-gradient(135deg, #40c0f0, #2080e0);
+    color: white;
+  }
+  #modeLabel {
+    font-size: 0.95em;
+    margin-top: 8px;
+    color: #aaddff;
+  }
+  #winOverlay {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(10,10,30,0.92);
+    border: 3px solid #f0c040;
+    border-radius: 18px;
+    padding: 30px 40px;
+    text-align: center;
+    z-index: 200;
+  }
+  #winOverlay h2 { font-size: 2em; color: #f0c040; margin-bottom: 15px; }
+  #winOverlay p { font-size: 1.1em; color: #ccc; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<h1>⚫ 五子棋 ⚪</h1>
+<div id="status">黑棋先行</div>
+<div id="gameContainer">
+  <canvas id="board"></canvas>
+  <div id="winOverlay">
+    <h2 id="winMsg">🎉 黑棋胜利！</h2>
+    <p>五子连珠，大获全胜！</p>
+    <button id="winRestartBtn">再来一局</button>
+  </div>
+  <div class="btn-row">
+    <button id="restartBtn">🔄 重新开始</button>
+    <button id="modeBtn">🤖 切换模式</button>
+  </div>
+  <div id="modeLabel">当前模式：双人对战</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Board settings
+  var GRID = 15;
+  var CELL = 38;
+  var PAD = 30;
+  var SIZE = PAD * 2 + CELL * (GRID - 1);
+
+  var canvas = document.getElementById('board');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  var ctx = canvas.getContext('2d');
+
+  // Game state
+  var board = [];
+  var currentPlayer = 1; // 1=black, 2=white
+  var gameOver = false;
+  var vsAI = false;
+
+  var statusDiv = document.getElementById('status');
+  var modeLabel = document.getElementById('modeLabel');
+  var winOverlay = document.getElementById('winOverlay');
+  var winMsg = document.getElementById('winMsg');
+
+  // Initialize board
+  function initBoard() {
+    board = [];
+    for (var i = 0; i < GRID; i++) {
+      board[i] = [];
+      for (var j = 0; j < GRID; j++) {
+        board[i][j] = 0;
+      }
+    }
+    currentPlayer = 1;
+    gameOver = false;
+    winOverlay.style.display = 'none';
+    updateStatus();
+    drawBoard();
+  }
+
+  function updateStatus() {
+    if (gameOver) return;
+    var name = currentPlayer === 1 ? '⚫ 黑棋' : '⚪ 白棋';
+    statusDiv.textContent = name + ' 落子中...';
+  }
+
+  // Draw the wooden board
+  function drawBoard() {
+    // Background
+    ctx.fillStyle = '#c8922a';
+    ctx.fillRect(0, 0, SIZE, SIZE);
+
+    // Wood texture gradient
+    var grad = ctx.createLinearGradient(0, 0, SIZE, SIZE);
+    grad.addColorStop(0, 'rgba(255,220,100,0.18)');
+    grad.addColorStop(1, 'rgba(120,60,0,0.18)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+
+    // Grid lines
+    ctx.strokeStyle = '#7a4a00';
+    ctx.lineWidth = 1;
+    for (var i = 0; i < GRID; i++) {
+      // Horizontal
+      ctx.beginPath();
+      ctx.moveTo(PAD, PAD + i * CELL);
+      ctx.lineTo(PAD + (GRID - 1) * CELL, PAD + i * CELL);
+      ctx.stroke();
+      // Vertical
+      ctx.beginPath();
+      ctx.moveTo(PAD + i * CELL, PAD);
+      ctx.lineTo(PAD + i * CELL, PAD + (GRID - 1) * CELL);
+      ctx.stroke();
+    }
+
+    // Star points
+    var stars = [[3,3],[3,11],[11,3],[11,11],[7,7]];
+    ctx.fillStyle = '#7a4a00';
+    stars.forEach(function(s) {
+      ctx.beginPath();
+      ctx.arc(PAD + s[0]*CELL, PAD + s[1]*CELL, 4, 0, Math.PI*2);
+      ctx.fill();
+    });
+
+    // Draw pieces
+    for (var r = 0; r < GRID; r++) {
+      for (var c = 0; c < GRID; c++) {
+        if (board[r][c] !== 0) drawPiece(r, c, board[r][c]);
+      }
+    }
+  }
+
+  function drawPiece(row, col, player) {
+    var x = PAD + col * CELL;
+    var y = PAD + row * CELL;
+    var radius = CELL * 0.44;
+
+    var grad = ctx.createRadialGradient(x - radius*0.3, y - radius*0.3, radius*0.1, x, y, radius);
+    if (player === 1) {
+      grad.addColorStop(0, '#666');
+      grad.addColorStop(1, '#000');
+    } else {
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(1, '#bbb');
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = player === 1 ? '#333' : '#999';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Check winner
+  function checkWin(row, col, player) {
+    var dirs = [[0,1],[1,0],[1,1],[1,-1]];
+    for (var d = 0; d < dirs.length; d++) {
+      var dr = dirs[d][0], dc = dirs[d][1];
+      var count = 1;
+      for (var k = 1; k < 5; k++) {
+        var r = row + dr*k, c = col + dc*k;
+        if (r<0||r>=GRID||c<0||c>=GRID||board[r][c]!==player) break;
+        count++;
+      }
+      for (var k = 1; k < 5; k++) {
+        var r = row - dr*k, c = col - dc*k;
+        if (r<0||r>=GRID||c<0||c>=GRID||board[r][c]!==player) break;
+        count++;
+      }
+      if (count >= 5) return true;
+    }
+    return false;
+  }
+
+  // Place piece
+  function placePiece(row, col) {
+    if (gameOver || board[row][col] !== 0) return false;
+    board[row][col] = currentPlayer;
+    drawBoard();
+    if (checkWin(row, col, currentPlayer)) {
+      gameOver = true;
+      var winner = currentPlayer === 1 ? '⚫ 黑棋胜利！' : '⚪ 白棋胜利！';
+      winMsg.textContent = '🎉 ' + winner;
+      statusDiv.textContent = winner;
+      setTimeout(function() { winOverlay.style.display = 'block'; }, 300);
+      return true;
+    }
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    updateStatus();
+    return true;
+  }
+
+  // Simple AI
+  function aiMove() {
+    // Try to win or block
+    var best = findBestMove();
+    if (best) placePiece(best[0], best[1]);
+  }
+
+  function scorePos(r, c, player) {
+    if (board[r][c] !== 0) return -1;
+    board[r][c] = player;
+    var dirs = [[0,1],[1,0],[1,1],[1,-1]];
+    var max = 0;
+    for (var d = 0; d < dirs.length; d++) {
+      var dr = dirs[d][0], dc = dirs[d][1];
+      var cnt = 1;
+      for (var k=1;k<5;k++){var rr=r+dr*k,cc=c+dc*k;if(rr<0||rr>=GRID||cc<0||cc>=GRID||board[rr][cc]!==player)break;cnt++;}
+      for (var k=1;k<5;k++){var rr=r-dr*k,cc=c-dc*k;if(rr<0||rr>=GRID||cc<0||cc>=GRID||board[rr][cc]!==player)break;cnt++;}
+      if (cnt > max) max = cnt;
+    }
+    board[r][c] = 0;
+    return max;
+  }
+
+  function findBestMove() {
+    // Win
+    for(var r=0;r<GRID;r++) for(var c=0;c<GRID;c++) if(scorePos(r,c,2)>=5) return [r,c];
+    // Block
+    for(var r=0;r<GRID;r++) for(var c=0;c<GRID;c++) if(scorePos(r,c,1)>=5) return [r,c];
+    // Best score
+    var bestScore = 0, bestPos = null;
+    for(var r=0;r<GRID;r++) for(var c=0;c<GRID;c++){
+      if(board[r][c]!==0) continue;
+      var s = scorePos(r,c,2)*2 + scorePos(r,c,1);
+      if(s > bestScore){ bestScore=s; bestPos=[r,c]; }
+    }
+    if (bestPos) return bestPos;
+    // Random near center
+    return [7 + Math.floor(Math.random()*3)-1, 7 + Math.floor(Math.random()*3)-1];
+  }
+
+  // Click handler
+  canvas.addEventListener('click', function(e) {
+    if (gameOver) return;
+    if (vsAI && currentPlayer === 2) return;
+    var rect = canvas.getBoundingClientRect();
+    var scaleX = canvas.width / rect.width;
+    var scaleY = canvas.height / rect.height;
+    var mx = (e.clientX - rect.left) * scaleX;
+    var my = (e.clientY - rect.top) * scaleY;
+    var col = Math.round((mx - PAD) / CELL);
+    var row = Math.round((my - PAD) / CELL);
+    if (row < 0 || row >= GRID || col < 0 || col >= GRID) return;
+    var placed = placePiece(row, col);
+    if (placed && vsAI && !gameOver && currentPlayer === 2) {
+      setTimeout(aiMove, 300);
+    }
+  });
+
+  // Buttons
+  var restartBtn = document.getElementById('restartBtn');
+  if (restartBtn) restartBtn.addEventListener('click', function() { initBoard(); });
+
+  var modeBtn = document.getElementById('modeBtn');
+  if (modeBtn) modeBtn.addEventListener('click', function() {
+    vsAI = !vsAI;
+    modeLabel.textContent = '当前模式：' + (vsAI ? '人机对战（你执黑棋）' : '双人对战');
+    modeBtn.textContent = vsAI ? '👥 切换模式' : '🤖 切换模式';
+    initBoard();
+  });
+
+  var winRestartBtn = document.getElementById('winRestartBtn');
+  if (winRestartBtn) winRestartBtn.addEventListener('click', function() { initBoard(); });
+
+  // Start game
+  initBoard();
+
+  // BUTTON CHECKLIST: #restartBtn ✓  #modeBtn ✓  #winRestartBtn ✓
+});
+</script>
+</body>
+</html>
